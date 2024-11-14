@@ -766,6 +766,12 @@ PjRtComputationClient::ExecuteComputation(
   }
   CreateDataHandlesCounter()->AddValue(datas.size());
 
+  static const bool pjrt_sync_wait =
+      runtime::sys_util::GetEnvBool("XLA_PJRT_SYNC_WAIT", false);
+  if (pjrt_sync_wait) {
+    returned_future->Await();
+  }
+
   TF_VLOG(1) << "Returning " << datas.size() << " results";
   return datas;
 }
@@ -910,6 +916,14 @@ PjRtComputationClient::ExecuteReplicated(
           }
         });
     counter.Wait();
+  }
+
+  static const bool pjrt_sync_wait =
+      runtime::sys_util::GetEnvBool("XLA_PJRT_SYNC_WAIT", false);
+  if (pjrt_sync_wait) {
+    for (auto& future : *returned_futures) {
+      future.Await();
+    }
   }
 
   TF_VLOG(1) << "Returning " << data_handles.size() << " sharded outputs.";
