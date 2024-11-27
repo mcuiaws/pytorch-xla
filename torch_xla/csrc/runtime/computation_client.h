@@ -80,6 +80,8 @@ class ComputationClient {
 
     virtual xla::OpSharding GetSharding() const = 0;
 
+    bool donated = false;
+
    private:
     std::string xla_device_;
     xla::Shape xla_shape_;

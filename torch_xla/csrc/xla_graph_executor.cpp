@@ -865,6 +865,7 @@ XLAGraphExecutor::ExecuteComputationWithBarrier(
         for (size_t i = 0; i < results.size(); ++i) {
           XLA_CHECK(async->tensors_data[i] != nullptr);
           async->tensors_data[i]->Assign(*results[i]);
+          UnwrapXlaData(async->tensors_data[i])->donated = false;
         }
       }
     } catch (...) {
@@ -1144,6 +1145,7 @@ XLAGraphExecutor::ScheduleSyncTensorsGraph(
       for (size_t i = 0; i < results.size(); ++i) {
         if (async->tensors_data[i] != nullptr) {
           async->tensors_data[i]->Assign(*results[i]);
+          UnwrapXlaData(async->tensors_data[i])->donated = false;
         } else {
           async->tensors_data[i] = std::move(results[i]);
         }
@@ -1273,7 +1275,7 @@ std::vector<size_t> XLAGraphExecutor::SetBufferDonors(
   for (size_t i = 0; i < indices.size(); ++i) {
     size_t tensor_index = indices[i];
     int64_t tensor_id = tensors[tensor_index]->data()->alias_id;
-    output_tensor_id_map[tensor_id] = i;
+    output_tensor_id_map[tensor_id] = tensor_index;
   }
   const auto& parameters_data = lowering_ctx->GetParametersData();
   std::vector<ssize_t> alias_map(indices.size(), -1);
@@ -1283,6 +1285,11 @@ std::vector<size_t> XLAGraphExecutor::SetBufferDonors(
             parameters_data[i]->info());
     if (data_info != nullptr && !data_info->read_only) {
       auto it = output_tensor_id_map.find(data_info->tensor_id);
+      auto backend_data = UnwrapXlaData(parameters_data[i]);
+      CHECK(!backend_data->donated)
+          << "Parameter at index " << i << " (alias_id=" << data_info->tensor_id
+          << ", shape=" << backend_data->shape().ToString()
+          << ") refers to DONATED buffer!!!";
       // Parameter buffer's TensorId in output_tensor_id_map means
       // this buffer is not needed after execution since XLATensor will get a
       // new buffer.
@@ -1290,6 +1297,11 @@ std::vector<size_t> XLAGraphExecutor::SetBufferDonors(
         lowering_ctx->builder()->AddBufferDonor(/*param_number=*/i,
                                                 /*param_index=*/{});
         buffer_donor_indexs.push_back(i);
+        TF_VLOG(4) << "Parameter at index " << i << " (alias_id=" << it->first
+                   << ", shape=" << backend_data->shape().ToString()
+                   << ") will be donated (matches tensor at index="
+                   << it->second << ").";
+        backend_data->donated = true;
       }
     }
   }
